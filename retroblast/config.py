@@ -23,6 +23,7 @@ FPS = 60
 
 TILE = 16
 LEVEL_ROWS = SCREEN_H // TILE  # 18 tile rows
+SURFACE_ROW = 14               # row of the default ground surface
 
 # Physics (pixels / seconds)
 GRAVITY = 1500.0

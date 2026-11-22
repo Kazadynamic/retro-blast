@@ -281,6 +281,9 @@ class Enemy:
     def update(self, dt, world, player, game):
         if not self.alive:
             return
+        if self.rect[1] > world.level.height * TILE + 64:
+            self.alive = False   # fell into a pit: remove instead of simulating
+            return
         self.t += dt
         self.anim += dt
         self.hit_flash = max(0.0, self.hit_flash - dt)
@@ -317,13 +320,16 @@ class Enemy:
             else:
                 self.on_ground = False
             if self.kind in ("slime", "walker") and self.on_ground:
-                ahead_x = self.rect[0] + (self.rect[2] + 2) * (1 if self.dir > 0 else -1)
+                ahead_x = self.rect[0] + (self.rect[2] + 2) * \
+                    (1 if self.dir > 0 else -1)
                 feet_y = self.rect[1] + self.rect[3] + 2
-                if self.kind == "slime" and not world.solid_at_px(ahead_x, feet_y):
+                # turn at walls and at ledges so ground enemies stay on their
+                # platform instead of marching into a pit
+                if not world.solid_at_px(ahead_x, feet_y):
                     self.dir = -self.dir
                 elif world.tile_at(int(ahead_x // TILE),
-                                   int((self.rect[1] + self.rect[3] - 2) // TILE)) \
-                        in SOLID_TILES:
+                                   int((self.rect[1] + self.rect[3] - 2)
+                                       // TILE)) in SOLID_TILES:
                     self.dir = -self.dir
 
     def damage(self, amount, game, player):

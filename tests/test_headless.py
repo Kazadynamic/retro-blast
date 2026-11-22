@@ -24,8 +24,9 @@ import pygame  # noqa: E402
 from retroblast.assets import ensure_assets  # noqa: E402
 from retroblast.audio import ensure_audio  # noqa: E402
 from retroblast.config import (SCREEN_H, SCREEN_W, ST_COMPLETE, ST_GAMEOVER,
-                               ST_LEVELS, ST_MENU, ST_PLAY)  # noqa: E402
+                               ST_LEVELS, ST_MENU, ST_PLAY, ST_VICTORY)  # noqa: E402
 from retroblast.game import Game  # noqa: E402
+from retroblast.levels import build_level  # noqa: E402
 
 FAILS = []
 
@@ -186,13 +187,18 @@ def run_tests() -> bool:
     if game.world.keys_held > 0:
         doors_before = len(game.world.level.doors)
         if doors_before:
+            player = game.world.player
             tx, ty = game.world.level.doors[0]
-            player.rect[0], player.rect[1] = tx * 16, ty * 16
-            frames(game, 3)
-            check(len(game.world.level.doors) == doors_before,
-                  "door stays listed after opening (tiles cleared)")
+            # stand one tile before the door and walk into it (the door is
+            # solid, so the unlock must trigger on an adjacent probe)
+            player.rect[0] = (tx - 1) * 16
+            player.rect[1] = (14 - 1) * 16
+            player.vx = 0.0
+            inp.hold("right")
+            frames(game, 40)
+            inp.release("right")
             check(game.world.level.tile_at(tx, ty) == 0,
-                  "locked door tiles are cleared with a key")
+                  "locked door opens when walked into with a key")
 
     # --- exit -> level complete -----------------------------------------
     if game.world.exit_rect:
@@ -232,6 +238,34 @@ def run_tests() -> bool:
     game.activate("buy:ab_double")
     check(game.save["equipped"]["ability"] == "double", "buying an ability equips it")
     screenshot(game, "08_shop")
+
+    # --- locked door flow on a level that actually has one ---------------
+    door_level = None
+    for w in range(4):
+        for i in range(2):
+            if build_level(w, i).doors:
+                door_level = (w, i)
+                break
+        if door_level:
+            break
+    if door_level:
+        game.start_level(*door_level)
+        frames(game, 5)
+        dlvl = game.world.level
+        dplayer = game.world.player
+        key = next((it for it in dlvl.items if it[0] == "key"), None)
+        door = dlvl.doors[0]
+        dplayer.rect[0], dplayer.rect[1] = key[1] * 16, key[2] * 16
+        frames(game, 3)
+        check(game.world.keys_held > 0, "key picked up off the ground")
+        dplayer.rect[0] = (door[0] - 1) * 16
+        dplayer.rect[1] = 13 * 16
+        dplayer.vx = 0.0
+        inp.hold("right")
+        frames(game, 40)
+        inp.release("right")
+        check(game.world.level.tile_at(*door) == 0,
+              "locked door opens when walked into with a key")
 
     # --- boss fight: stomp the boss, gate opens --------------------------
     game.start_level(0, 1)
@@ -274,7 +308,6 @@ def run_tests() -> bool:
     check(reloaded["equipped"]["skin"] == "shadow", "save file round-trips")
 
     # --- every level builds and renders ---------------------------------
-    from retroblast.levels import build_level
     for w in range(4):
         for i in range(2):
             lvl = build_level(w, i)
@@ -285,6 +318,30 @@ def run_tests() -> bool:
             cols = sample(game)
             check(len(cols) > 25, f"level {w}:{i} renders ({len(cols)} colours)")
     screenshot(game, "09_lava")
+
+    # --- world/level invariants ------------------------------------------
+    for w in range(4):
+        for i in range(2):
+            lvl = build_level(w, i)
+            keys = [tx for n, tx, _ in lvl.items if n == "key"]
+            check(all(k < d for k in keys for d, _ in lvl.doors),
+                  f"level {w}:{i}: every locked door has a key before it")
+            check(len(lvl.doors) <= 12,
+                  f"level {w}:{i}: at most one locked door")
+            check(len(lvl.enemies) >= 3, f"level {w}:{i}: enemies present")
+
+    # --- victory screen after the final level ----------------------------
+    for key in [f"{w}:{i}" for w in range(4) for i in range(2)]:
+        game.save["progress"][key] = True
+    game.start_level(3, 1)
+    frames(game, 5)
+    game.world.boss.alive = False          # beat the boss so the gate opens
+    frames(game, 5)
+    player = game.world.player
+    player.rect[0], player.rect[1] = game.world.exit_rect[0], 13 * 16
+    frames(game, 5)
+    check(game.state == ST_VICTORY, "clearing the last level shows VICTORY")
+    screenshot(game, "12_victory")
 
     print()
     if FAILS:

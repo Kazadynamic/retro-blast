@@ -6,9 +6,9 @@ import random
 import pygame
 
 from .assets import Assets, door_frame, checkpoint_frame, render_text
-from .config import (SCREEN_H, SCREEN_W, TILE, T_DOOR, T_EMPTY, T_GATE,
-                     T_LAVA, T_PLATFORM, T_SECRET, T_SOLID, T_SPIKE, aabb,
-                     clamp, lerp)
+from .config import (SCREEN_H, SCREEN_W, SURFACE_ROW, TILE, T_DOOR, T_EMPTY,
+                     T_GATE, T_LAVA, T_PLATFORM, T_SECRET, T_SOLID, T_SPIKE,
+                     aabb, clamp, lerp)
 from .entities import Enemy, FloatText, Item, MovingPlatform, Particle, Player
 from .physics import tile_overlap
 
@@ -113,6 +113,7 @@ class World:
         if not self.finished:
             self.player.update(dt, inp, self, game)
             self._carry_player()
+            self._pit_check(game)
 
         # enemies
         for enemy in self.enemies:
@@ -133,9 +134,13 @@ class World:
                 self.secrets_found += 1
                 game.on_secret(tx * TILE, ty * TILE)
 
-        # locked doors
+        # locked doors: the player cannot overlap a solid door tile, so probe
+        # a slightly inflated box or a player pressed against the door would
+        # never trigger the unlock
         if self.keys_held > 0:
-            for tx, ty, tile in tile_overlap(self.level, self.player.rect):
+            p = self.player.rect
+            probe = [p[0] - 2, p[1] - 2, p[2] + 4, p[3] + 4]
+            for tx, ty, tile in tile_overlap(self.level, probe):
                 if tile == T_DOOR:
                     self._open_doors(game)
                     break
@@ -170,6 +175,19 @@ class World:
         target_x = clamp(target_x, 0, max(0, self.level.world_px - SCREEN_W))
         self.camera[0] = lerp(self.camera[0], target_x, 1.0 - pow(0.001, dt))
         self.camera[1] = 0.0
+
+    def _pit_check(self, game):
+        """A pit is fatal: falling past the surface in a column with no
+        ground kills Hammy instead of letting him stand on a neighbour's
+        ledge at the bottom of the hole."""
+        p = self.player
+        if p.dead:
+            return
+        feet = p.rect[1] + p.rect[3]
+        if feet > (SURFACE_ROW + 2) * TILE:
+            col = int(p.cx // TILE)
+            if self.level.is_pit(col) or self.level.is_pit(col + 1):
+                p.die(game)
 
     def _carry_player(self):
         p = self.player
